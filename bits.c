@@ -380,18 +380,19 @@ int mul5Sat(int x) {
  *   Rating: 7
  */
 int classifyAdd3(int x, int y, int z) {
-  int xSign = x>>31;
-  int ySign = y>>31;
-  int zSign = z>>31;
-  int sum1 = (x+y)&(xSign^ySign)|(x+z)&~(xSign^ySign);
-  int sum1Sign = sum1>>31;
-  int ov1 = ~(xSign^zSign)&(sum1Sign^zSign)&~(xSign^ySign);
-  int sum2 = ((sum1+z)&(xSign^ySign)|(sum1+y)&~(xSign^ySign));
-  int sum2Sign = sum2>>31;
-  int ov2 = ~(sum1Sign^zSign)&(sum1Sign^sum2Sign)&(xSign^ySign)|~(sum1Sign^ySign)&(sum2Sign^sum1Sign)&~(xSign^ySign);
-  ov1 = ov1&(~sum1Sign&~0|sum1Sign&1);
-  ov2 = ov2&(~sum2Sign&~0|sum2Sign&1)&!ov1;
-  return ov1|ov2;
+  int xs = x >> 31;
+  int ys = y >> 31;
+  int zs = z >> 31;
+  int s12 = x + y;
+  int s12s = s12 >> 31;
+  int s = s12 + z;
+  int ss = s >> 31;
+
+  int c1 = ((~xs & ~ys & s12s) & 1) | (xs & ys & ~s12s);
+  int c2 = ((~s12s & ~zs & ss) & 1) | (s12s & zs & ~ss);
+
+  int k = c1 + c2;
+  return (k >> 31) | (!!k);
 }
 
 // P15
