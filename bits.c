@@ -146,7 +146,7 @@ NOTES:
  *   Rating: 1
  */
 int signMask(void) {
-  return 1;
+  return 1<<31;
 }
 
 // P2
@@ -158,7 +158,7 @@ int signMask(void) {
  *   Rating: 2
  */
 int bitXor(int x, int y) {
-	return 2;
+	return (~(x&y))&(~(~x&~y));
 }
 
 // P3
@@ -170,7 +170,7 @@ int bitXor(int x, int y) {
  *   Rating: 3
  */
 int negativePart(int x){
-  return 3;
+  return (x>>31)&(~x+1);
 }
 
 
@@ -185,7 +185,9 @@ int negativePart(int x){
  *   Rating: 4
  */
 int copyByteWithin(int x, int src, int dst) {
-  return 4;
+  dst = dst<<3;
+  src = src<<3;
+  return x&~(0xff<<dst)|(x>>src&0xff)<<dst;
 }
 
 // P5
@@ -198,7 +200,7 @@ int copyByteWithin(int x, int src, int dst) {
  *   Rating: 4
  */
 int logicalShift(int x, int n) {
-  return 5;
+  return x>>n&~(1<<31>>n<<1);
 }
 
 // P6
@@ -210,7 +212,10 @@ int logicalShift(int x, int n) {
  *   Rating: 4
  */
 int swapNibblePairs(int x) {
-  return 6;
+  int mask = 0x0f;
+  mask = mask|mask<<8;
+  mask = mask|mask<<16;
+  return (x&mask)<<4|x>>4&mask;
 }
 
 // P7
@@ -223,7 +228,8 @@ int swapNibblePairs(int x) {
  *   Rating: 4
  */
 int secondLowestZeroBit(int x) {
-  return 7;
+  int y = x|(x+1);
+  return ~y&(y+1);
 }
 
 // P8
@@ -236,7 +242,12 @@ int secondLowestZeroBit(int x) {
  *   Rating: 5
  */
 int oddParity(int x) {
-  return 8;
+  x = x^x>>16;
+  x = x^x>>8;
+  x = x^x>>4;
+  x = x^x>>2;
+  x = x^x>>1;
+  return !(x&1);
 }
 
 // P9
@@ -249,7 +260,11 @@ int oddParity(int x) {
  *   Rating: 5
  */
 int rotateRightBits(int x, int n) {
-  return 9;
+  int x_right = x>>n;
+  int mask = 1<<31>>n<<1;
+  x_right = x_right&~mask;
+  int x_left = x<<(33+~n);
+  return x_right|x_left;
 }
 
 // P10
@@ -264,7 +279,16 @@ int rotateRightBits(int x, int n) {
  *   Rating: 5
  */
 int roundEvenPow2(int x, int n) {
-  return 10;
+  int mask = ~0<<n;
+  int multiple = x&mask;
+  int remainder = x&~mask;
+  int isMore = remainder>>(n+~0);
+  int half = 1<<(n+~0);
+  int isHalf = !(remainder^half);
+  isMore = isMore&~isHalf;
+  int isOdd = multiple>>n&1;
+  int sign = isOdd&isHalf|isMore;
+  return multiple+(sign<<n);
 }
 
 // P11
@@ -280,7 +304,20 @@ int roundEvenPow2(int x, int n) {
  *   Rating: 5
  */
 int midpointTowardFirst(int x, int y) {
-  return 11;
+  int xHalf = x>>1;
+  int yHalf = y>>1;
+  int xBit = x&1;
+  int yBit = y&1;
+  int xSign = x>>31;
+  int ySign = y>>31;
+  int diffSign = xSign^ySign;
+  int sub = x+~y+1;
+  int subSign = sub>>31;
+  int isGreater = (!diffSign)&(!subSign)&(!!sub)|diffSign&(ySign);
+  isGreater = isGreater&1;
+  int plus = isGreater&(xBit^yBit);
+  int carry = (xBit+yBit)>>1;
+  return xHalf+yHalf+carry+plus;
 }
 
 
@@ -294,7 +331,18 @@ int midpointTowardFirst(int x, int y) {
  *   Rating: 7
  */
 int isBetweenEitherOrder(int x, int a, int b) {
-  return 12;
+  int xSign = x>>31;
+  int aSign = a>>31;
+  int bSign = b>>31;
+  int xaDiffSign = xSign^aSign;
+  int xbDiffSign = xSign^bSign;
+  int xaSub = x+~a+1;
+  int xaSubSign = xaSub>>31;
+  int xbSub = x+~b+1;
+  int xbSubSign = xbSub>>31;
+  int xaGreater = !xaDiffSign&!xaSubSign|xaDiffSign&!xSign;
+  int xbGreater = !xbDiffSign&!xbSubSign|xbDiffSign&!xSign;
+  return (xaGreater^xbGreater)|!xaSub|!xbSub;
 }
 
 // P13
@@ -307,7 +355,19 @@ int isBetweenEitherOrder(int x, int a, int b) {
  *   Rating: 7
  */
 int mul5Sat(int x) {
-  return 13;
+  int y = x+(x<<2);
+  int xOppo = ~x+1;
+  int xSign = x>>31;
+  int t = (0x19 << 24) | (0x99 << 16) | (0x99 << 8) | 0x99;
+  int subSign = (t+xOppo)>>31;
+  int subSignMinus = (t+x)>>31;
+  int MIN = 1<<31;
+  int MAX = ~MIN;
+  int negOv = xSign&subSignMinus;
+  int posOv = ~xSign&subSign;
+  int ov = negOv|posOv;
+  int sat = (negOv&MIN)|(posOv&MAX);
+  return (ov&sat)|(~ov&y);
 }
 
 // P14
@@ -320,7 +380,18 @@ int mul5Sat(int x) {
  *   Rating: 7
  */
 int classifyAdd3(int x, int y, int z) {
-  return 14;
+  int xSign = x>>31;
+  int ySign = y>>31;
+  int zSign = z>>31;
+  int sum1 = (x+y)&(xSign^ySign)|(x+z)&~(xSign^ySign);
+  int sum1Sign = sum1>>31;
+  int ov1 = ~(xSign^zSign)&(sum1Sign^zSign)&~(xSign^ySign);
+  int sum2 = ((sum1+z)&(xSign^ySign)|(sum1+y)&~(xSign^ySign));
+  int sum2Sign = sum2>>31;
+  int ov2 = ~(sum1Sign^zSign)&(sum1Sign^sum2Sign)&(xSign^ySign)|~(sum1Sign^ySign)&(sum2Sign^sum1Sign)&~(xSign^ySign);
+  ov1 = ov1&(~sum1Sign&~0|sum1Sign&1);
+  ov2 = ov2&(~sum2Sign&~0|sum2Sign&1)&!ov1;
+  return ov1|ov2;
 }
 
 // P15
