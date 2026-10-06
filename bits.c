@@ -409,7 +409,38 @@ int classifyAdd3(int x, int y, int z) {
  *   Rating: 7
  */
 unsigned floatScaleThreeHalves(unsigned uf) {
-  return 15;
+  unsigned sign = uf & 0x80000000;
+  unsigned exp  = (uf >> 23) & 0xFF;
+  unsigned frac = uf & 0x7FFFFF;
+
+  if (exp == 0xFF)          /* NaN or Inf: return unchanged */
+    return uf;
+
+  if (exp == 0) {           /* zero or denormal */
+    if (frac == 0)
+      return uf;            /* preserve +0 / -0 */
+    unsigned t = frac + (frac << 1);          /* frac * 3 */
+    unsigned q = t >> 1;
+    unsigned r = q + ((t & 1) & (q & 1));     /* round to nearest even */
+    if (r < 0x800000)       /* still denormal */
+      return sign | r;
+    return sign | (1u << 23) | (r & 0x7FFFFF); /* promoted to normal (exp=1) */
+  }
+
+  /* normal */
+  unsigned sig = 0x800000 | frac;             /* 24-bit significand */
+  unsigned t = sig + (sig << 1);              /* sig * 3 */
+  unsigned q = t >> 1;
+  unsigned r = q + ((t & 1) & (q & 1));       /* round to nearest even */
+
+  if (r >= 0x1000000) {     /* significand overflowed: renormalize */
+    unsigned q2 = r >> 1;
+    r = q2 + ((r & 1) & (q2 & 1));            /* round the remaining .5 */
+    exp = exp + 1;
+  }
+  if (exp == 0xFF)          /* overflow to infinity */
+    return sign | 0x7F800000;
+  return sign | (exp << 23) | (r & 0x7FFFFF);
 }
 
 // P16
@@ -425,7 +456,45 @@ unsigned floatScaleThreeHalves(unsigned uf) {
  *   Rating: 10
  */
 unsigned floatRoundEven(unsigned uf) {
-  return 16;
+  unsigned sign = uf & 0x80000000;
+  unsigned exp  = (uf >> 23) & 0xFF;
+  unsigned frac = uf & 0x7FFFFF;
+
+  if (exp >= 0xFF)          /* NaN or Inf */
+    return uf;
+  if (exp == 0)             /* |v| < 2^-126: rounds to +/-0 */
+    return sign;
+  if (exp >= 150)           /* |v| >= 2^23: already an integer */
+    return uf;
+
+  unsigned M = 0x800000 | frac;   /* 24-bit significand */
+  int s = 150 - exp;              /* 1..149 */
+
+  unsigned R;
+  if (s >= 24) {                  /* |v| < 1 */
+    if (s == 24 && M > 0x800000)
+      R = 1;
+    else
+      R = 0;
+  } else {
+    unsigned ip = M >> s;
+    unsigned low = M & ((1 << s) - 1);
+    unsigned half = 1 << (s - 1);
+    unsigned roundup = (low > half) || ((low == half) && (ip & 1));
+    R = ip + roundup;
+  }
+
+  if (R == 0)
+    return sign;
+
+  /* normalize R (1 <= R <= 2^23) back to float */
+  unsigned t = R;
+  int sh = 0;
+  while (t > 1) {
+    t = t >> 1;
+    sh = sh + 1;
+  }
+  return sign | ((127 + sh) << 23) | ((R << (23 - sh)) & 0x7FFFFF);
 }
 
 // P17
@@ -439,7 +508,36 @@ unsigned floatRoundEven(unsigned uf) {
  *   Rating: 10
  */
 unsigned float_i2f(int x) {
-  return 17;
+  unsigned sign = x & 0x80000000;
+  unsigned mag;
+  int shift = 0;
+  unsigned exp, frac, rem;
+
+  if (x == 0)
+    return 0;
+
+  if (x < 0)
+    mag = ~x + 1;             /* |x| (wraps correctly for INT_MIN) */
+  else
+    mag = x;
+
+  while ((mag & 0x80000000) == 0) {
+    mag = mag << 1;
+    shift = shift + 1;
+  }
+
+  exp = 158 - shift;
+  frac = (mag >> 8) & 0x7FFFFF;
+  rem = mag & 0xFF;
+
+  if (rem > 0x80 || (rem == 0x80 && (frac & 1)))
+    frac = frac + 1;
+  if (frac & 0x800000) {
+    frac = 0;
+    exp = exp + 1;
+  }
+
+  return sign | (exp << 23) | frac;
 }
 
 
@@ -453,7 +551,21 @@ unsigned float_i2f(int x) {
  *   Rating: 10
  */
 int bitCount(int x) {
-  return 18;
+  int m1 = 0x55 | (0x55 << 8);
+  m1 = m1 | (m1 << 16);
+  int m2 = 0x33 | (0x33 << 8);
+  m2 = m2 | (m2 << 16);
+  int m3 = 0x0F | (0x0F << 8);
+  m3 = m3 | (m3 << 16);
+  int m4 = 0xFF | (0xFF << 16);
+  int m5 = 0xFF | (0xFF << 8);
+
+  x = (x & m1) + ((x >> 1) & m1);
+  x = (x & m2) + ((x >> 2) & m2);
+  x = (x & m3) + ((x >> 4) & m3);
+  x = (x & m4) + ((x >> 8) & m4);
+  x = (x & m5) + ((x >> 16) & m5);
+  return x;
 }
 
 // P19
@@ -467,5 +579,16 @@ int bitCount(int x) {
  */
 int bitReverse(int x)
 {
-  return 19;
+  int m4 = 0xFF | (0xFF << 16);   /* 0x00FF00FF */
+  int m3 = m4 ^ (m4 << 4);        /* 0x0F0F0F0F */
+  int m2 = m3 ^ (m3 << 2);        /* 0x33333333 */
+  int m1 = m2 ^ (m2 << 1);        /* 0x55555555 */
+  int m5 = 0xFF | (0xFF << 8);    /* 0x0000FFFF */
+
+  x = ((x >> 1) & m1) | ((x & m1) << 1);
+  x = ((x >> 2) & m2) | ((x & m2) << 2);
+  x = ((x >> 4) & m3) | ((x & m3) << 4);
+  x = ((x >> 8) & m4) | ((x & m4) << 8);
+  x = (x << 16) | ((x >> 16) & m5);
+  return x;
 }
